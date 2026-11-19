@@ -24,9 +24,27 @@ def get_principal(
     if creds is None:
         raise unauthorized()
     try:
-        return decode_access_token(creds.credentials)
+        claims = decode_access_token(creds.credentials)
     except (jwt.PyJWTError, ValueError, KeyError):
         raise unauthorized() from None
+
+    # The token proves WHO the caller is. What they may do is read fresh from the
+    # database on every request (under RLS, so a forged tenant claim finds no user),
+    # which makes demotion and deactivation take effect immediately.
+    with db_session(claims.tenant_id) as session:
+        active = session.execute(
+            text("SELECT is_active FROM users WHERE id = :id"), {"id": claims.user_id}
+        ).scalar()
+        roles = (
+            session.execute(
+                text("SELECT role FROM user_roles WHERE user_id = :id"), {"id": claims.user_id}
+            ).scalars().all()
+            if active
+            else []
+        )
+    if not active:
+        raise unauthorized("Unknown or inactive user")
+    return Principal(user_id=claims.user_id, tenant_id=claims.tenant_id, roles=frozenset(roles))
 
 
 CurrentPrincipal = Annotated[Principal, Depends(get_principal)]

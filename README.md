@@ -3,7 +3,7 @@
 A RAG backend where **a user can never retrieve, or cause an LLM to see, data they aren't allowed to read**.
 Isolation is enforced in the database, not just in application code, and the test suite proves it.
 
-![CI](https://github.com/YOUR-USERNAME/permission-rag/actions/workflows/ci.yml/badge.svg)
+![CI](https://github.com/pavitra9905/permission-rag/actions/workflows/ci.yml/badge.svg)
 
 ## Stack
 Python 3.12 · FastAPI · PostgreSQL 16 + pgvector · SQLAlchemy 2 + Alembic · PyJWT + argon2 ·
@@ -32,7 +32,7 @@ flowchart LR
 | Cross-tenant links | Composite foreign keys `(tenant_id, id)` make it impossible to relate rows of different tenants, even through a bug. |
 | Document access | Admin, creator, or an explicit `document_permissions` row, evaluated in SQL at query time and **never copied into chunks**. Revocation is immediate. |
 | Existence hiding | A document you can't read returns 404, not 403. |
-| Auth | argon2id passwords, short-lived HS256 JWTs (required `exp/iat/iss/sub`, algorithm pinned, roles validated), constant-time-ish login failures. |
+| Auth | argon2id passwords, short-lived HS256 JWTs (required `exp/iat/iss/sub`, algorithm pinned). The token proves *who* you are; **roles are re-read from the database on every request**, so demotion and deactivation are immediate. Failed logins on real accounts are audited and rate-limited per IP and per (IP, account). |
 | Audit log | Append-only: `UPDATE/DELETE/TRUNCATE` revoked and blocked by trigger even for the owner; RLS-scoped per tenant. Stores IDs, never question or answer text. |
 | LLM safety | Retrieval happens before the LLM; no readable documents means no LLM call. Document text is escaped and framed as untrusted data. |
 
@@ -70,7 +70,8 @@ chunks even when they are the best match; forged, expired, `alg=none` and cross-
 the audit log cannot be altered by the app role or the table owner.
 
 ## Known limitations
-- Roles live in the JWT for its lifetime (15 min); deactivating a user takes effect immediately, role changes at next login.
-- No rate limiting or account lockout yet; failed logins aren't audited.
+- The login rate limiter is in-memory and per process; use Redis if you run several instances. Behind a reverse proxy, configure trusted proxy headers so the limiter sees real client IPs.
+- Failed attempts against non-existent accounts are rate-limited but not audited (there is no tenant to attach the entry to).
+- No refresh tokens, password reset or self-service registration; tenants and users are created by an admin script.
 - Only UTF-8 `.txt` / `.md` uploads; ingestion uses FastAPI background tasks (add Celery + Redis if uploads get slow).
 - Small local models follow citation rules less reliably than hosted ones.

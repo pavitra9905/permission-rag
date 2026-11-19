@@ -303,3 +303,13 @@ def scene(make_tenant, make_user, make_document):
     )
     s.doc = make_document(t, s.creator)
     return s
+
+
+
+@pytest.fixture(autouse=True)
+def reset_rate_limiters():
+    from app.core.ratelimit import account_limiter, ip_limiter
+
+    account_limiter.clear()
+    ip_limiter.clear()
+    yield
